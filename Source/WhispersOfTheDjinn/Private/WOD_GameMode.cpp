@@ -2,131 +2,69 @@
 
 
 #include "WOD_GameMode.h"
-#include "WOD_Character.h"
-#include "WOD_PlayerState.h"
+#include "WOD_GameInstance.h"
 #include "Kismet/GameplayStatics.h"
-#include "GameFramework/GameStateBase.h"
-#include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerStart.h"
-#include "Net/UnrealNetwork.h"
 
-
-AWOD_GameMode::AWOD_GameMode()
-{
-    DefaultPawnClass = nullptr;
-}
-
-void AWOD_GameMode::BeginPlay()
+void AWOD_BaseGameMode::BeginPlay()
 {
 	Super::BeginPlay();
 
-    UE_LOG(LogTemp, Warning, TEXT("AWOD_GameMode BeginPlay running!"));
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), APlayerStart::StaticClass(), PlayerStarts);
 
-    // Starting the game locally on the same computer
-    if (GetWorld()->IsNetMode(NM_Standalone))
-    {
-        UGameplayStatics::GetAllActorsOfClass(GetWorld(), APlayerStart::StaticClass(), PlayerStarts);
-    
-        PlayerControllers.Add(Cast<AWOD_PlayerController>(UGameplayStatics::GetPlayerController(GetWorld(), 0)));
-        PlayerControllers.Add(Cast<AWOD_PlayerController>(UGameplayStatics::CreatePlayer(GetWorld(), -1, true)));
-
-        PossessPawns(PlayerControllers);
-    }
-
-    UE_LOG(LogTemp, Warning, TEXT("GM: BeginPlay on server? %s"), HasAuthority() ? TEXT("YES (server)") : TEXT("NO (client)"));
+	if (IsNetMode(NM_Standalone))
+	{
+		// Create a second local player for split-screen
+		UWOD_GameInstance* GI = Cast<UWOD_GameInstance>(GetGameInstance());
+		GI->CreateLocalPlayer(1, true);
+	}
 
 }
 
-void AWOD_GameMode::RestartPlayer(AController* NewPlayer)
+void AWOD_BaseGameMode::PostLogin(APlayerController* NewPlayer)
 {
-    UE_LOG(LogTemp, Warning, TEXT("GM: RestartPlayer (%s)"), *GetNameSafe(NewPlayer));
-    Super::RestartPlayer(NewPlayer);
+	Super::PostLogin(NewPlayer);
 
-    if (!GetWorld()->IsNetMode(NM_Standalone))
-    {
-        if (!NewPlayer) return;
+	UE_LOG(LogTemp, Warning, TEXT("New player logged in: %s"), *GetNameSafe(NewPlayer));
+	JoinCounter++;
+	// Now PlayerState is safe to access
+	if (NewPlayer->PlayerState)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("%s 's PlayerState Created!") , *GetNameSafe(NewPlayer));
+	}
 
-        AActor* StartLoc = ChoosePlayerStart(NewPlayer);
+	AActor* PStart = FindPlayerStart(NewPlayer);
+	FVector SpawnLoc = PStart->GetActorLocation();
+	FRotator SpawnRot = PStart->GetActorRotation();
 
-        FVector SpawnLoc = StartLoc->GetActorLocation();
-        FRotator SpawnRot = StartLoc->GetActorRotation();
+	//Spawn a new pawn for the controller
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
-        AWOD_PlayerState* PS = Cast<AWOD_PlayerState>(NewPlayer->PlayerState);
+	APawn* PawnToPossess = GetWorld()->SpawnActor<AWOD_Character>(BPCharacter, SpawnLoc, SpawnRot, SpawnParams);
 
-        if (!PS) return;
+	if (PawnToPossess)
+	{
 
-        if (PlayerCount == 0)
-        {
-            PS->SetRole(ECoopRole::PlayerOne);
-            PS->SetPlayerRole(EPlayerRole::Sister);
-            UE_LOG(LogTemp, Log, TEXT("Player 1 spawned and possessed successfully, with Role : Sister."));
-        }
-        else
-        {
-            PS->SetRole(ECoopRole::PlayerTwo);
-            PS->SetPlayerRole(EPlayerRole::Brother);
-            UE_LOG(LogTemp, Log, TEXT("Player 2 spawned and possessed successfully, with Role : Brother."));
-        }
+		if (AWOD_PlayerState* NewPS = NewPlayer->GetPlayerState<AWOD_PlayerState>())
+		{
+			if (JoinCounter - 1 == 0)
+			{
+				NewPS->SetRole(ECoopRole::PlayerOne);
+				NewPS->SetPlayerRole(EPlayerRole::Sister);
+				UE_LOG(LogTemp, Log, TEXT("Player %d spawned with Role : %s."), JoinCounter + 1, *UEnum::GetDisplayValueAsText(NewPS->GetPlayerRole()).ToString());
 
-        if (NewPlayer->IsLocalController())
-        {
-            if (AWOD_PlayerController* WPC = Cast<AWOD_PlayerController>(NewPlayer))
-            {
-                WPC->ApplyLocalInputMapping();
-            }
-        }
+			}
+			else
+			{
+				NewPS->SetRole(ECoopRole::PlayerTwo);
+				NewPS->SetPlayerRole(EPlayerRole::Brother);
+				UE_LOG(LogTemp, Log, TEXT("Player %d spawned with Role : %s."), JoinCounter + 1, *UEnum::GetDisplayValueAsText(NewPS->GetPlayerRole()).ToString());
 
-        if (BPCharacter)
-        {
-            FActorSpawnParameters Params;
-            Params.Owner = NewPlayer;
-            Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+			}
+		}
 
-            APawn* newPawn = GetWorld()->SpawnActor<APawn>(BPCharacter, SpawnLoc, SpawnRot, Params);
+		NewPlayer->Possess(PawnToPossess);
+	}
 
-            if (newPawn)
-            {
-                NewPlayer->Possess(newPawn);
-                UE_LOG(LogTemp, Warning, TEXT("GM: HandleStartingNewPlayer (%s)"), *GetNameSafe(NewPlayer));
-            }
-        }
-
-        PlayerCount++;
-    }
 }
-
-void AWOD_GameMode::PossessPawns(TArray<AWOD_PlayerController*> playerControllers)
-{
-    for (int i = 0; i < NumPlayers; i++)
-    {
-        //Pick a Player Start Position
-        FVector SpawnLocation = PlayerStarts[i]->GetActorLocation();
-        FRotator SpawnRotation = PlayerStarts[i]->GetActorRotation();
-        
-        //Spawn a new pawn for the controller
-        FActorSpawnParameters SpawnParams;
-        SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-
-        APawn* PawnToPossess = GetWorld()->SpawnActor<AWOD_Character>(BPCharacter, SpawnLocation, SpawnRotation, SpawnParams);
-        
-        if (PawnToPossess)
-        {
-            AWOD_PlayerState* PS = playerControllers[i]->GetPlayerState<AWOD_PlayerState>();
-
-            if (i == 0)
-            {
-                PS->SetRole(ECoopRole::PlayerOne);
-                PS->SetPlayerRole(EPlayerRole::Sister);
-            }
-            else
-            {
-                PS->SetRole(ECoopRole::PlayerTwo);
-                PS->SetPlayerRole(EPlayerRole::Brother);
-            }
-
-            playerControllers[i]->Possess(PawnToPossess);
-            UE_LOG(LogTemp, Log, TEXT("Player %d spawned and possessed successfully, with Role : %s."), i + 1, *UEnum::GetDisplayValueAsText(PS->GetPlayerRole()).ToString());
-        }
-    }
-}
-

@@ -33,7 +33,6 @@ enum class EPlayerState : uint8
 /**
  * 
  */
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPlayerStateChanged, EPlayerState, NewState);
 
 UCLASS()
 class WHISPERSOFTHEDJINN_API AWOD_PlayerState : public APlayerState
@@ -52,12 +51,7 @@ public:
 	void SetState(EPlayerState newState);
 	EPlayerState GetState() const;
 
-	UPROPERTY(BlueprintAssignable, Category = "PlayerState")
-	FOnPlayerStateChanged OnPlayerStateChanged;
-
-
 protected:
-
 
 	UPROPERTY(Replicated, EditAnywhere, BlueprintReadOnly, Category = "Role")
 	ECoopRole CoopRole;
@@ -68,6 +62,13 @@ protected:
 	UPROPERTY(Replicated, EditAnywhere, BlueprintReadOnly, Category = "State")
 	EPlayerState PlayerState = EPlayerState::Idle;
 
+	UFUNCTION(BlueprintCallable)
+	void OnRep_PlayerStateChanged();
+
+	UFUNCTION()
+	void ShowActionStateDebug();
+
+	void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const;
 
 	
 };

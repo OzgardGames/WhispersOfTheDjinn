@@ -4,8 +4,10 @@
 #include "WOD_PlayerState.h"
 #include "WOD_Character.h"
 #include "WOD_PlayerController.h"
+#include "BaseAnimInstance.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Engine.h"
 
 AWOD_PlayerState::AWOD_PlayerState()
 {
@@ -38,7 +40,8 @@ void AWOD_PlayerState::SetState(EPlayerState newState)
     if (PlayerState == newState) return;
 
     PlayerState = newState;
-    OnPlayerStateChanged.Broadcast(PlayerState);
+    ShowActionStateDebug();
+
 
 	AWOD_Character* Character = Cast<AWOD_Character>(GetPawn());
 
@@ -54,7 +57,7 @@ void AWOD_PlayerState::SetState(EPlayerState newState)
         {
             Character->GetCharacterMovement()->MaxWalkSpeed = 550.0f;
         }
-		Character->bCanCrouch = true;
+		Character->bIsCrouching = false;
     }
     else if (PlayerState == EPlayerState::Walking)
     {
@@ -67,7 +70,7 @@ void AWOD_PlayerState::SetState(EPlayerState newState)
     else if (PlayerState == EPlayerState::Crouching)
     {
         Character->GetCharacterMovement()->MaxWalkSpeed = 300.0f;
-		Character->bCanCrouch = false;
+		Character->bIsCrouching = true;
     }
     else if (PlayerState == EPlayerState::Carrying)
     {
@@ -79,6 +82,36 @@ void AWOD_PlayerState::SetState(EPlayerState newState)
 EPlayerState AWOD_PlayerState::GetState() const
 {
     return PlayerState;
+}
+
+void AWOD_PlayerState::OnRep_PlayerStateChanged()
+{
+    AWOD_Character* Character = Cast<AWOD_Character>(GetPawn());
+
+    if (Character)
+    {
+        UBaseAnimInstance* AnimInstance = Cast<UBaseAnimInstance>(Character->GetMesh()->GetAnimInstance());
+        
+        if (AnimInstance)
+        {
+            AnimInstance->AnimState = PlayerState;
+        }
+    }
+}
+
+void AWOD_PlayerState::ShowActionStateDebug()
+{
+    FString StateString = UEnum::GetValueAsString(PlayerState);
+
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(
+            -1,
+            5.f,
+            FColor::Green,
+            FString::Printf(TEXT("ActionState: %s"), *StateString)
+        );
+    }
 }
 
 void AWOD_PlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const

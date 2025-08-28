@@ -4,27 +4,9 @@
 
 #include "CoreMinimal.h"
 #include "Animation/AnimInstance.h"
+#include "WOD_PlayerState.h"
 #include "BaseAnimInstance.generated.h"
 
-UENUM(BlueprintType)
-enum class ECharacterAnimState : uint8
-{
-    Idle        UMETA(DisplayName = "Idle"),
-    Walking        UMETA(DisplayName = "Walk"),
-    Running         UMETA(DisplayName = "Run"),
-    Jumping         UMETA(DisplayName = "Jump"),
-    Crouching      UMETA(DisplayName = "Crouch"),
-
-    // Brother specific
-    Carrying    UMETA(DisplayName = "Carrying"),
-    Sliding     UMETA(DisplayName = "Sliding"),
-    Drawing     UMETA(DisplayName = "Drawing"),
-
-    // Sister specific
-    AimingLantern  UMETA(DisplayName = "Aiming Lantern"),
-    CalmingBrother UMETA(DisplayName = "Calming Brother"),
-    Reading        UMETA(DisplayName = "Reading"),
-};
 /**
  * 
  */
@@ -35,14 +17,11 @@ class WHISPERSOFTHEDJINN_API UBaseAnimInstance : public UAnimInstance
 	
 public:
 
-    void SetAnimState(ECharacterAnimState newAnimState);
-    ECharacterAnimState GetAnimState();
+    void SetAnimState(EPlayerState newAnimState);
+    EPlayerState GetAnimState();
 
-	UFUNCTION(BlueprintCallable, Category = "Animation")
-    ECharacterAnimState MapPlayerStateToAnim(EPlayerState State);
-
-    UPROPERTY(Replicated, EditAnywhere, BlueprintReadOnly, Category = "State")
-    ECharacterAnimState AnimState;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation State")
+    EPlayerState AnimState;
 
     virtual void NativeUpdateAnimation(float DeltaSeconds) override;
 };

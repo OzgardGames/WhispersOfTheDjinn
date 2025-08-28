@@ -90,24 +90,8 @@ void AWOD_Character::PossessedBy(AController* NewController)
 	if (PS)
 	{
 		AssignPlayerRoles();
-
-		AnimInstance = Cast<UBaseAnimInstance>(SkeletalMesh->GetAnimInstance());
-
-		if (AnimInstance)
-		{
-			PS->OnPlayerStateChanged.AddDynamic(this, &AWOD_Character::HandlePlayerStateChanged);
-			AnimInstance->AnimState = AnimInstance->MapPlayerStateToAnim(PS->GetState());
-		}
 	}
 
-}
-
-void AWOD_Character::HandlePlayerStateChanged(EPlayerState NewState)
-{
-	if (AnimInstance)
-	{
-		AnimInstance->AnimState = AnimInstance->MapPlayerStateToAnim(NewState);
-	}
 }
 
 void AWOD_Character::AssignPlayerRoles()
@@ -155,7 +139,7 @@ void AWOD_Character::Move(const FInputActionValue& Value)
 	if (Controller != nullptr)
 	{
 		if (!PS) return;
-		if (bCanCrouch)
+		if (!bIsCrouching)
 		{
 			PS->SetState(EPlayerState::Walking);
 		}
@@ -178,7 +162,7 @@ void AWOD_Character::StartJump(const FInputActionValue& Value)
 	PS->SetState(EPlayerState::Jumping);
 
 	// make sure the character stop crouching if he was
-	if (!bCanCrouch)
+	if (bIsCrouching)
 	{
 		UncrouchStart();
 	}
@@ -198,7 +182,7 @@ void AWOD_Character::ToggleCrouch(const FInputActionValue& Value)
 
 	if (bIsGrounded)
 	{
-		if (!bCanCrouch)
+		if (bIsCrouching)
 		{
 			UncrouchStart();
 		}

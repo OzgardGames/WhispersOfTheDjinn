@@ -28,9 +28,6 @@ protected:
 
 	/** Initialize input action bindings */
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
-	
-	UFUNCTION()
-	void HandlePlayerStateChanged(EPlayerState NewState);
 
 private:
 
@@ -120,7 +117,7 @@ public:
 	void AssignLantern();
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Abilities")
-	bool bCanCrouch = true;
+	bool bIsCrouching = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Abilities")
 	bool bIsGrounded = true;

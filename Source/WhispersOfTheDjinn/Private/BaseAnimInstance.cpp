@@ -7,12 +7,12 @@
 #include "GameFramework/GameStateBase.h"
 #include "Net/UnrealNetwork.h"
 
-void UBaseAnimInstance::SetAnimState(ECharacterAnimState newAnimState)
+void UBaseAnimInstance::SetAnimState(EPlayerState newAnimState)
 {
 	AnimState = newAnimState;
 }
 
-ECharacterAnimState UBaseAnimInstance::GetAnimState()
+EPlayerState UBaseAnimInstance::GetAnimState()
 {
 	return AnimState;
 }
@@ -21,26 +21,15 @@ void UBaseAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeUpdateAnimation(DeltaSeconds);
 
-}
+	APawn* Pawn = TryGetPawnOwner();
 
-ECharacterAnimState UBaseAnimInstance::MapPlayerStateToAnim(EPlayerState State)
-{
-	switch (State)
+	if (!Pawn) return;
+
+	AWOD_PlayerState* PS = Pawn->GetPlayerState<AWOD_PlayerState>();
+
+	if (PS)
 	{
-	case EPlayerState::Idle:         return ECharacterAnimState::Idle;
-	case EPlayerState::Walking:      return ECharacterAnimState::Walking;
-	case EPlayerState::Running:      return ECharacterAnimState::Running;
-	case EPlayerState::Jumping:      return ECharacterAnimState::Jumping;
-	case EPlayerState::Crouching:    return ECharacterAnimState::Crouching;
-	case EPlayerState::Carrying:     return ECharacterAnimState::Carrying;
-	
-		// Add all mappings
-	default:                         return ECharacterAnimState::Idle;
+		AnimState = PS->GetState();
 	}
-}
 
-void UBaseAnimInstance::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
-{
-	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	DOREPLIFETIME(UBaseAnimInstance, AnimState);
 }

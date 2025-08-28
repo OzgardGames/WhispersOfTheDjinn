@@ -2,13 +2,13 @@
 
 
 #include "WOD_PlayerController.h"
+#include "Lantern.h"
 #include "WOD_Character.h"
 #include "WOD_PlayerState.h"
-#include "GameFramework/CharacterMovementComponent.h"
-#include "Lantern.h"
-#include "EnhancedInputComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerStart.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "EnhancedInputComponent.h"
 #include "InputAction.h"
 
 AWOD_PlayerController::AWOD_PlayerController()
@@ -26,10 +26,7 @@ void AWOD_PlayerController::OnPossess(APawn* InPawn)
 {
     Super::OnPossess(InPawn);
     
-    if (GetWorld()->IsNetMode(NM_Standalone))
-    {
-        ApplyLocalInputMapping();
-    }
+    ApplyLocalInputMapping();
 }
 
 void AWOD_PlayerController::OnRep_PlayerState()
