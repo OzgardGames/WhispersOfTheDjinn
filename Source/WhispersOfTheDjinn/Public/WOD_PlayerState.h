@@ -20,16 +20,7 @@ enum class EPlayerRole : uint8
 	Brother UMETA(DisplayName = "Brother")
 };
 
-UENUM(BlueprintType)
-enum class EPlayerState : uint8
-{
-	Idle UMETA(DisplayName = "Idle"),
-	Walking UMETA(DisplayName = "Walk"),
-	Running UMETA(DisplayName = "Run"),
-	Jumping UMETA(DisplayName = "Jump"),
-	Crouching UMETA(DisplayName = "Crouch"),
-	Carrying UMETA(DisplayName = "Carry"),
-};
+
 /**
  * 
  */
@@ -42,14 +33,11 @@ class WHISPERSOFTHEDJINN_API AWOD_PlayerState : public APlayerState
 public:
 	AWOD_PlayerState();
 
-	void SetRole(ECoopRole newRole);
-	ECoopRole GetRole() const;
+	void SetCoopRole(ECoopRole newRole);
+	ECoopRole GetCoopRole() const;
 
 	void SetPlayerRole(EPlayerRole newPlayerRole);
 	EPlayerRole GetPlayerRole() const;	
-	
-	void SetState(EPlayerState newState);
-	EPlayerState GetState() const;
 
 protected:
 
@@ -58,15 +46,6 @@ protected:
 
 	UPROPERTY(Replicated, EditAnywhere, BlueprintReadOnly, Category = "PlayerRole")
 	EPlayerRole PlayerRole = EPlayerRole::Sister;
-
-	UPROPERTY(Replicated, EditAnywhere, BlueprintReadOnly, Category = "State")
-	EPlayerState PlayerState = EPlayerState::Idle;
-
-	UFUNCTION(BlueprintCallable)
-	void OnRep_PlayerStateChanged();
-
-	UFUNCTION()
-	void ShowActionStateDebug();
 
 	void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const;
 

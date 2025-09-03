@@ -20,6 +20,7 @@ public:
 
     UFUNCTION()
     void ApplyLocalInputMapping();
+    void BindActionToController() ;
 
 protected:
     /** Input Mapping Context assigned in editor */
@@ -32,4 +33,24 @@ protected:
     /** Priority of the mapping */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
     int32 MappingPriority = 0;
+
+protected:
+
+    /** Move Input Action */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+    class UInputAction* MoveAction;
+
+    /** Jump Input Action */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+    class UInputAction* JumpAction;
+
+    /** Jump Input Action */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+    class UInputAction* CrouchAction;
+
+    /** Jump Input Action */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+    class UInputAction* InteractAction;
+
+    class UInteractionComponent* InteractionComponent;
 };

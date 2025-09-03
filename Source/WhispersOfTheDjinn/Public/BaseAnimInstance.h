@@ -3,8 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "WOD_Character.h"
 #include "Animation/AnimInstance.h"
-#include "WOD_PlayerState.h"
 #include "BaseAnimInstance.generated.h"
 
 /**
@@ -17,11 +17,11 @@ class WHISPERSOFTHEDJINN_API UBaseAnimInstance : public UAnimInstance
 	
 public:
 
-    void SetAnimState(EPlayerState newAnimState);
-    EPlayerState GetAnimState();
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation State")
+    EAnimState CurrentAnimState;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation State")
-    EPlayerState AnimState;
+    bool aIsCrouching = false;
 
     virtual void NativeUpdateAnimation(float DeltaSeconds) override;
 };

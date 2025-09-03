@@ -8,8 +8,29 @@
 #include "Logging/LogMacros.h"
 #include "Lantern.h"
 #include "InteractionComponent.h"
-#include "BaseAnimInstance.h"
 #include "WOD_Character.generated.h"
+
+UENUM(BlueprintType)
+enum class EAnimState : uint8
+{
+	Idle UMETA(DisplayName = "Idle"),
+	Walking UMETA(DisplayName = "Walk"),
+	Running UMETA(DisplayName = "Run"),
+	Jumping UMETA(DisplayName = "Jump"),
+	Crouching UMETA(DisplayName = "Crouch"),
+	Carrying UMETA(DisplayName = "Carry"),
+};
+
+USTRUCT(BlueprintType)
+struct FPlayerActionState
+{
+	GENERATED_BODY(BlueprintReadOnly)
+
+
+
+	UPROPERTY(BlueprintReadOnly)
+	EAnimState AnimState = EAnimState::Idle;
+};
 
 UCLASS()
 class WHISPERSOFTHEDJINN_API AWOD_Character : public ACharacter
@@ -19,15 +40,33 @@ class WHISPERSOFTHEDJINN_API AWOD_Character : public ACharacter
 public:
 	// Sets default values for this character's properties
 	AWOD_Character();
+
+	UFUNCTION(Server, Reliable)
+	void ServerSetAnimState(EAnimState NewState);
+
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	EAnimState AnimState = EAnimState::Idle;
+
+	
+	UPROPERTY(Replicated, EditAnywhere, BlueprintReadOnly)
+	bool bIsGrounded = true;
+
+	UPROPERTY(Replicated, EditAnywhere, BlueprintReadOnly)
+	bool bIsCarrying = false;
+	UPROPERTY(Replicated, EditAnywhere, BlueprintReadOnly)
+	bool CanCarry = true;
+
+	UPROPERTY(Replicated, EditAnywhere, BlueprintReadOnly)
+	bool bIsSprinting = false;
+
+
 protected:
 
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaTime) override;
 	virtual void Landed(const FHitResult& Hit) override;
 	virtual void OnRep_PlayerState() override;
 	virtual void PossessedBy(AController* NewController) override;
-
-	/** Initialize input action bindings */
-	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
 private:
 
@@ -41,8 +80,7 @@ private:
 
 	/** Follow camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Asset", meta = (AllowPrivateAccess = "true"))
-	
-	UInteractionComponent* InteractionComponent;
+
 	USkeletalMeshComponent* SkeletalMesh;
 
 	// Sister Character
@@ -61,30 +99,14 @@ private:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation Instances", meta = (AllowPrivateAccess = "true"))
 	TSubclassOf<UAnimInstance> BrotherAnimInstance;
 
-
-protected:
-
-	/** Move Input Action */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
-	class UInputAction* MoveAction;
-
-	/** Jump Input Action */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
-	class UInputAction* JumpAction;
-
-	/** Jump Input Action */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
-	class UInputAction* CrouchAction;
-
-	/** Jump Input Action */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
-	class UInputAction* InteractAction;
-
-private:
+public:
 
 	/** Handles movement input */
 	UFUNCTION()
 	void Move(const FInputActionValue& Value);
+
+	UFUNCTION()
+	void StopMove(const FInputActionValue& Value);
 
 	/** Handles Jump input */
 	UFUNCTION()
@@ -96,14 +118,39 @@ private:
 	UFUNCTION()
 	void ToggleCrouch(const FInputActionValue& Value);
 
-	void CrouchStart();
-	void UncrouchStart();
-
 	UFUNCTION()
 	void AssignPlayerRoles();
 
-	class AWOD_PlayerState* PS = nullptr;
-	UBaseAnimInstance* AnimInstance;
+	UFUNCTION()
+	void AssignLantern();
+
+	UFUNCTION()
+	void Interact(const FInputActionValue& Value);
+
+	// PICKUP NETWORK LOGIC
+	UFUNCTION(Server, Reliable)
+	void ServerSetHeldItem(AActor* newItem);
+
+	UFUNCTION(Server,Reliable)
+	void ServerSetCurrentInteractable(AActor* newCurrent);
+
+	UFUNCTION(Server, Reliable)
+	void ServerDropHeldItem();
+
+	UFUNCTION()
+	void RunPickupAction();
+
+	UFUNCTION()
+	void ApplyHeldItem();
+
+	UFUNCTION()
+	void OnRep_HeldItem();
+	
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "Interactable")
+	AActor* CurrentInteractable = nullptr;
+
+	UPROPERTY(ReplicatedUsing = OnRep_HeldItem)
+	AActor* HeldItem = nullptr;
 
 public:
 
@@ -113,12 +160,7 @@ public:
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 
-	UFUNCTION()
-	void AssignLantern();
+protected:
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Abilities")
-	bool bIsCrouching = false;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Abilities")
-	bool bIsGrounded = true;
+	void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const;
 };

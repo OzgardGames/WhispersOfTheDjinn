@@ -2,6 +2,9 @@
 
 #include "WOD_Character.h"
 #include "WOD_PlayerState.h"
+#include "WOD_PlayerController.h"
+#include "Pickable.h"
+#include "BaseAnimInstance.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -9,13 +12,14 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/Controller.h"
 #include "EnhancedInputComponent.h"
-#include "EnhancedInputSubsystems.h"
-#include "InputActionValue.h"
+#include "Net/UnrealNetwork.h"
 
 AWOD_Character::AWOD_Character()
 {
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
+	GetCapsuleComponent()->bHiddenInGame = false;
+	GetCapsuleComponent()->SetHiddenInGame(false);
 
 	// Don't rotate when the controller rotates. Let that just affect the camera.
 	bUseControllerRotationPitch = false;
@@ -46,19 +50,54 @@ AWOD_Character::AWOD_Character()
 	FollowCamera->bUsePawnControlRotation = false;
 
 	SkeletalMesh = GetMesh();
-	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("Interaction Component"));
 
-	
 	PrimaryActorTick.bCanEverTick = true;
-	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
+	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 
 	bReplicates = true;
 	bAlwaysRelevant = true;
 }
 
+void AWOD_Character::ServerSetAnimState_Implementation(EAnimState NewState)
+{
+	AnimState = NewState;
+}
+
+void AWOD_Character::ToggleCrouch(const FInputActionValue& Value)
+{
+	if (bIsCrouched)
+	{
+		UnCrouch();
+	}
+	else
+	{
+		Crouch();
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("bIsCrouched after: %d"), bIsCrouched);
+}
+
+void AWOD_Character::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(AWOD_Character, bIsGrounded);
+	DOREPLIFETIME(AWOD_Character, AnimState);
+	DOREPLIFETIME(AWOD_Character, HeldItem);
+	DOREPLIFETIME(AWOD_Character, CurrentInteractable);
+	DOREPLIFETIME(AWOD_Character, bIsCarrying);
+	DOREPLIFETIME(AWOD_Character, CanCarry);
+}
+
 void AWOD_Character::BeginPlay()
 {
 	Super::BeginPlay();
+
+}
+
+void AWOD_Character::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
 
 }
 
@@ -73,9 +112,7 @@ void AWOD_Character::OnRep_PlayerState()
 {
 	Super::OnRep_PlayerState();
 
-	PS = GetPlayerState<AWOD_PlayerState>();
-
-	if (PS)
+	if (AWOD_PlayerState* PS = GetPlayerState<AWOD_PlayerState>())
 	{
 		AssignPlayerRoles();
 	}
@@ -85,9 +122,7 @@ void AWOD_Character::PossessedBy(AController* NewController)
 {
 	Super::PossessedBy(NewController);
 
-	PS = GetPlayerState<AWOD_PlayerState>();
-
-	if (PS)
+	if (AWOD_PlayerState* PS = GetPlayerState<AWOD_PlayerState>())
 	{
 		AssignPlayerRoles();
 	}
@@ -96,118 +131,25 @@ void AWOD_Character::PossessedBy(AController* NewController)
 
 void AWOD_Character::AssignPlayerRoles()
 {
-	if (!PS) return;
-	if (PS->GetPlayerRole() == EPlayerRole::Sister)
+	if (AWOD_PlayerState* PS = GetPlayerState<AWOD_PlayerState>())
 	{
-		AssignLantern();
-		SkeletalMesh->SetSkeletalMesh(SisterSkeletalMesh);
-		SkeletalMesh->SetAnimInstanceClass(SisterAnimInstance);
-		GetCharacterMovement()->MaxWalkSpeed = 450.0f;
-	}
-	else
-	{
-		SkeletalMesh->SetSkeletalMesh(BrotherSkeletalMesh);
-		SkeletalMesh->SetAnimInstanceClass(BrotherAnimInstance);
-		GetCharacterMovement()->MaxWalkSpeed = 550.0f;
-	}
-}
-
-void AWOD_Character::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
-{
-	Super::SetupPlayerInputComponent(PlayerInputComponent);
-
-	// Set up action bindings
-	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent)) {
-
-		// Moving
-		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AWOD_Character::Move);
-
-		// Jumping
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &AWOD_Character::StartJump);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &AWOD_Character::StopJump);
-
-		// Crouching
-		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Started, this, &AWOD_Character::ToggleCrouch);
-		
-		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, InteractionComponent, &UInteractionComponent::TryInteract);
-	}
-
-}
-
-void AWOD_Character::Move(const FInputActionValue& Value)
-{
-	if (Controller != nullptr)
-	{
-		if (!PS) return;
-		if (!bIsCrouching)
+		if (PS->GetPlayerRole() == EPlayerRole::Sister)
 		{
-			PS->SetState(EPlayerState::Walking);
-		}
-
-		// input is a Vector2D
-		FVector2D MovementVector = Value.Get<FVector2D>();
-
-		FVector ForwardDir = FVector::ForwardVector;
-		FVector RightDir = FVector::RightVector;
-
-		AddMovementInput(ForwardDir, MovementVector.Y);
-		AddMovementInput(RightDir, MovementVector.X);
-
-	}
-}
-
-void AWOD_Character::StartJump(const FInputActionValue& Value)
-{
-	if (!PS) return;
-	PS->SetState(EPlayerState::Jumping);
-
-	// make sure the character stop crouching if he was
-	if (bIsCrouching)
-	{
-		UncrouchStart();
-	}
-
-	Jump();
-	bIsGrounded = false;
-}
-
-void AWOD_Character::StopJump(const FInputActionValue& Value)
-{
-	StopJumping();
-}
-
-void AWOD_Character::ToggleCrouch(const FInputActionValue& Value)
-{
-	if (!PS) return;
-
-	if (bIsGrounded)
-	{
-		if (bIsCrouching)
-		{
-			UncrouchStart();
+			AssignLantern();
+			SkeletalMesh->SetSkeletalMesh(SisterSkeletalMesh);
+			SkeletalMesh->SetAnimInstanceClass(SisterAnimInstance);
+			GetCharacterMovement()->MaxWalkSpeed = 450.0f;
 		}
 		else
 		{
-			CrouchStart();
+			SkeletalMesh->SetSkeletalMesh(BrotherSkeletalMesh);
+			SkeletalMesh->SetAnimInstanceClass(BrotherAnimInstance);
+			GetCharacterMovement()->MaxWalkSpeed = 550.0f;
 		}
+
+		
 	}
 }
-
-void AWOD_Character::CrouchStart()
-{
-	PS->SetState(EPlayerState::Crouching);
-	GetCapsuleComponent()->SetCapsuleSize(50.0f, 48.0f, true);
-	GetCapsuleComponent()->SetRelativeLocation(GetCapsuleComponent()->GetRelativeLocation() - FVector(0.0f, 0.0f, 48.0f));
-}
-
-void AWOD_Character::UncrouchStart()
-{
-	PS->SetState(EPlayerState::Idle);
-	GetCapsuleComponent()->SetCapsuleSize(42.0f, 96.0f, true);
-	GetCapsuleComponent()->SetRelativeLocation(GetCapsuleComponent()->GetRelativeLocation() + FVector(0.0f, 0.0f, 48.0f));
-}
-
-
 
 void AWOD_Character::AssignLantern()
 {
@@ -221,3 +163,119 @@ void AWOD_Character::AssignLantern()
 			TEXT("LanternSocket")); //Attach Lantern to player hand
 	}
 }
+
+void AWOD_Character::Interact(const FInputActionValue& Value)
+{
+	AWOD_PlayerState* PS = GetPlayerState<AWOD_PlayerState>();
+	if (PS->GetPlayerRole() == EPlayerRole::Brother)
+	{
+		RunPickupAction();
+	}
+}
+
+void AWOD_Character::OnRep_HeldItem()
+{
+	ApplyHeldItem();
+}
+
+void AWOD_Character::ApplyHeldItem()
+{
+	if (HeldItem && HeldItem->Implements<UPickable>())
+	{
+		if (bIsCarrying)
+		{
+			IPickable::Execute_AttachToHand(HeldItem, this);
+		}
+		else
+		{
+			IPickable::Execute_DropToGround(HeldItem, this);
+		}
+	}
+}
+
+void AWOD_Character::ServerSetHeldItem_Implementation(AActor* newItem)
+{
+	HeldItem = newItem;
+
+	bIsCarrying = true;
+	CanCarry = !bIsCarrying;
+	ApplyHeldItem();
+	CurrentInteractable = nullptr;
+}
+
+void AWOD_Character::ServerDropHeldItem_Implementation()
+{
+	bIsCarrying = false;
+	CanCarry = !bIsCarrying;
+	ApplyHeldItem();
+	HeldItem = nullptr;
+}
+
+void AWOD_Character::ServerSetCurrentInteractable_Implementation(AActor* newCurrent)
+{
+	CurrentInteractable = newCurrent;
+}
+
+void AWOD_Character::RunPickupAction()
+{
+	if (CurrentInteractable)
+	{
+		if (CanCarry)
+			ServerSetHeldItem(CurrentInteractable);
+		else
+			ServerDropHeldItem();
+	}
+	else if (!CurrentInteractable)
+	{
+		if (CanCarry)
+			UE_LOG(LogTemp, Log, TEXT("No Pickable Item Found At Location !***"))
+		else
+			ServerDropHeldItem();
+	}
+}
+
+void AWOD_Character::Move(const FInputActionValue& Value)
+{
+	if (Controller != nullptr)
+	{
+		ServerSetAnimState(EAnimState::Walking);
+
+		// input is a Vector2D
+		FVector2D MovementVector = Value.Get<FVector2D>();
+
+		FVector ForwardDir = FVector::ForwardVector;
+		FVector RightDir = FVector::RightVector;
+
+		AddMovementInput(ForwardDir, MovementVector.Y);
+		AddMovementInput(RightDir, MovementVector.X);
+
+	}
+}
+
+void AWOD_Character::StopMove(const FInputActionValue& Value)
+{
+	if (Controller != nullptr)
+	{
+		ServerSetAnimState(EAnimState::Idle);
+	}
+}
+
+void AWOD_Character::StartJump(const FInputActionValue& Value)
+{
+	ServerSetAnimState(EAnimState::Jumping);
+
+	// make sure the character stop crouching if he was
+	if (bIsCrouched)
+	{
+		UnCrouch();
+	}
+
+	Jump();
+	bIsGrounded = false;
+}
+
+void AWOD_Character::StopJump(const FInputActionValue& Value)
+{
+	StopJumping();
+}
+
