@@ -19,6 +19,8 @@ enum class EAnimState : uint8
 	Jumping UMETA(DisplayName = "Jump"),
 	Crouching UMETA(DisplayName = "Crouch"),
 	Carrying UMETA(DisplayName = "Carry"),
+	Hanging UMETA(DisplayName = "Hang"),
+	Climbing UMETA(DisplayName = "Climb"),
 };
 
 USTRUCT(BlueprintType)
@@ -46,18 +48,21 @@ public:
 
 	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	EAnimState AnimState = EAnimState::Idle;
-
 	
 	UPROPERTY(Replicated, EditAnywhere, BlueprintReadOnly)
 	bool bIsGrounded = true;
 
 	UPROPERTY(Replicated, EditAnywhere, BlueprintReadOnly)
 	bool bIsCarrying = false;
+
 	UPROPERTY(Replicated, EditAnywhere, BlueprintReadOnly)
-	bool CanCarry = true;
+	bool bIsPushing = false;
 
 	UPROPERTY(Replicated, EditAnywhere, BlueprintReadOnly)
 	bool bIsSprinting = false;
+
+	UPROPERTY(Replicated, EditAnywhere, BlueprintReadOnly)
+	bool bIsHanging = false;
 
 
 protected:
@@ -101,6 +106,15 @@ private:
 
 public:
 
+	UPROPERTY(ReplicatedUsing = OnRep_MovementVector, VisibleAnywhere, BlueprintReadOnly)
+	FVector2D MovementVector = FVector2D(0);
+
+	UFUNCTION()
+	void OnRep_MovementVector();
+
+	UFUNCTION(Server,Reliable)
+	void Server_SetMovementVector(FVector2D NewMovementVector);
+
 	/** Handles movement input */
 	UFUNCTION()
 	void Move(const FInputActionValue& Value);
@@ -127,30 +141,92 @@ public:
 	UFUNCTION()
 	void Interact(const FInputActionValue& Value);
 
-	// PICKUP NETWORK LOGIC
-	UFUNCTION(Server, Reliable)
-	void ServerSetHeldItem(AActor* newItem);
+	// PICKUP NETWORK LOGIC *************
+	UFUNCTION(Server,Reliable)
+	void Server_SetCurrentPickable(AActor* newCurrent);
 
 	UFUNCTION(Server,Reliable)
-	void ServerSetCurrentInteractable(AActor* newCurrent);
+	void Server_PickupItem(AActor* newPickable);
+
+	UFUNCTION()
+	FVector HandleDropPosition();
+
+	UFUNCTION(Server,Reliable)
+	void Server_DropItem(FVector DropLocation,FRotator DropRotation);
+
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "Interactable")
+	AActor* CurrentPickable = nullptr;
+
+	// PUSH/PULL NETWORK LOGIC ************
 
 	UFUNCTION(Server, Reliable)
-	void ServerDropHeldItem();
+	void Server_SetCurrentPushable(AActor* newCurrent);
 
-	UFUNCTION()
-	void RunPickupAction();
+	UFUNCTION(Server , Reliable)
+	void Server_StartPushing(AActor* newPushable);
 
-	UFUNCTION()
-	void ApplyHeldItem();
+	UFUNCTION(Server, Reliable)
+	void Server_StopPushing();
+
+	UFUNCTION(Server, Reliable)
+	void Server_MovePushable();
+
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "Interactable")
+	FVector RepPushableLocation;
+
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "Interactable")
+	AActor* CurrentPushable = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Interactable")
+	float PushForce = 200.0f;
+
+	float BoxInterpSpeed = 30.f;
+
+	// INTERACTIBLE LOGIC ************
 
 	UFUNCTION()
 	void OnRep_HeldItem();
-	
-	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "Interactable")
-	AActor* CurrentInteractable = nullptr;
 
 	UPROPERTY(ReplicatedUsing = OnRep_HeldItem)
 	AActor* HeldItem = nullptr;
+
+	UPROPERTY(Replicated)
+	AActor* PushedItem = nullptr;
+
+	// LEDGE GRABS LOGIX ************
+
+	UFUNCTION()
+	void SendForwardTrace();
+
+	UFUNCTION()
+	void SendLedgeTrace(FVector HitPoint);
+
+	UFUNCTION()
+	void CreateLedgeNewTransform();
+
+	UFUNCTION()
+	void LocateHandsOnLedge(FVector HitPoint);
+
+	UFUNCTION()
+	void SendHandTrace(FVector HandLocation);
+	
+	FVector WallNormal = FVector(0);
+	FVector WallPoint = FVector(0);
+	FVector LedgePoint = FVector(0);
+	FVector NewRight = FVector(0);
+
+	FVector RightHandLocation = FVector(0);
+	FVector LeftHandLocation = FVector(0);
+
+	bool CanHang = true;
+	FTimerHandle HangTimer;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Montages")
+	UAnimMontage* ClimbMontage;
+	UFUNCTION()
+	void HangTimerSolver();
+
+
 
 public:
 

@@ -14,6 +14,7 @@ void UBaseAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	{
 		CurrentAnimState = Character->AnimState;
 		aIsCrouching = Character->bIsCrouched;
+		aIsHanging = Character->bIsHanging;
 	}
 
 }

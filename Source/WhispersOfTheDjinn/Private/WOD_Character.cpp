@@ -4,6 +4,8 @@
 #include "WOD_PlayerState.h"
 #include "WOD_PlayerController.h"
 #include "Pickable.h"
+#include "Pushable.h"
+#include "PushableBox.h"
 #include "BaseAnimInstance.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
@@ -12,6 +14,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/Controller.h"
 #include "EnhancedInputComponent.h"
+#include "Kismet/KismetMathLibrary.h"
 #include "Net/UnrealNetwork.h"
 
 AWOD_Character::AWOD_Character()
@@ -63,19 +66,7 @@ void AWOD_Character::ServerSetAnimState_Implementation(EAnimState NewState)
 	AnimState = NewState;
 }
 
-void AWOD_Character::ToggleCrouch(const FInputActionValue& Value)
-{
-	if (bIsCrouched)
-	{
-		UnCrouch();
-	}
-	else
-	{
-		Crouch();
-	}
 
-	UE_LOG(LogTemp, Warning, TEXT("bIsCrouched after: %d"), bIsCrouched);
-}
 
 void AWOD_Character::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
@@ -83,10 +74,15 @@ void AWOD_Character::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 
 	DOREPLIFETIME(AWOD_Character, bIsGrounded);
 	DOREPLIFETIME(AWOD_Character, AnimState);
+	DOREPLIFETIME(AWOD_Character, MovementVector);
+	DOREPLIFETIME(AWOD_Character, CurrentPickable);
+	DOREPLIFETIME(AWOD_Character, CurrentPushable);
 	DOREPLIFETIME(AWOD_Character, HeldItem);
-	DOREPLIFETIME(AWOD_Character, CurrentInteractable);
+	DOREPLIFETIME(AWOD_Character, PushedItem);
 	DOREPLIFETIME(AWOD_Character, bIsCarrying);
-	DOREPLIFETIME(AWOD_Character, CanCarry);
+	DOREPLIFETIME(AWOD_Character, bIsPushing);
+	DOREPLIFETIME(AWOD_Character, bIsHanging);
+	DOREPLIFETIME(AWOD_Character, RepPushableLocation);
 }
 
 void AWOD_Character::BeginPlay()
@@ -98,6 +94,35 @@ void AWOD_Character::BeginPlay()
 void AWOD_Character::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	if (PushedItem && !HasAuthority())
+	{
+		PushedItem->SetActorLocation(RepPushableLocation);
+	}
+
+	SendForwardTrace();
+
+	if (bIsHanging)
+	{
+		SetActorRotation(UKismetMathLibrary::MakeRotFromX(-WallNormal));
+		if (!FMath::IsNearlyZero(MovementVector.X))
+			SetActorLocation(GetActorLocation() + (NewRight * MovementVector.X * 50.0f * DeltaTime));
+		else
+			GetCharacterMovement()->StopMovementImmediately();
+	}
+
+	//if (bIsHanging)
+	//{
+	//	FVector NewLocation = LedgePoint + WallNormal * 70.0f;
+	//	float ZRelocate = NewLocation.Z - 75.0f;
+	//	NewLocation.Z = ZRelocate;
+
+	//	if (AnimState != EAnimState::Climbing)
+	//	{
+	//		FVector HangLocation = FMath::VInterpTo(GetActorLocation(), NewLocation, DeltaTime, 30.0f);
+	//		SetActorLocation(HangLocation);
+	//	}
+	//}
 
 }
 
@@ -146,8 +171,6 @@ void AWOD_Character::AssignPlayerRoles()
 			SkeletalMesh->SetAnimInstanceClass(BrotherAnimInstance);
 			GetCharacterMovement()->MaxWalkSpeed = 550.0f;
 		}
-
-		
 	}
 }
 
@@ -164,73 +187,317 @@ void AWOD_Character::AssignLantern()
 	}
 }
 
+void AWOD_Character::Server_SetCurrentPickable_Implementation(AActor* newCurrent)
+{
+	CurrentPickable = newCurrent;
+}
+
+void AWOD_Character::Server_SetCurrentPushable_Implementation(AActor* newCurrent)
+{
+	CurrentPushable = newCurrent;
+}
+
 void AWOD_Character::Interact(const FInputActionValue& Value)
 {
 	AWOD_PlayerState* PS = GetPlayerState<AWOD_PlayerState>();
 	if (PS->GetPlayerRole() == EPlayerRole::Brother)
 	{
-		RunPickupAction();
+		if (!HeldItem && !PushedItem) // Not Holding anything
+		{
+			if (CurrentPickable)
+			{
+				Server_PickupItem(CurrentPickable);
+			}
+			else if (CurrentPushable)
+			{
+				Server_StartPushing(CurrentPushable);
+			}
+		}
+		else // Holding something
+		{
+			if (HeldItem && HeldItem->Implements<UPickable>())
+			{
+				FVector DropPosition = HandleDropPosition();
+				Server_DropItem(DropPosition, FRotator::ZeroRotator);
+			}
+			else if (PushedItem && PushedItem->Implements<UPushable>())
+			{
+				Server_StopPushing();
+			}
+		}
+	}
+}
+
+void AWOD_Character::Server_PickupItem_Implementation(AActor* newPickable)
+{
+	HeldItem = newPickable;
+
+	if (HeldItem->Implements<UPickable>())
+	{
+		bIsCarrying = true;
+		CurrentPickable = nullptr;
+
+		if (HeldItem->Implements<UPickable>())
+		{
+			IPickable::Execute_OnPickedUp(HeldItem);
+		}
+
+		FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, true);
+		HeldItem->AttachToComponent(
+			GetMesh(),
+			AttachRules,
+			FName("HandGrip_R")
+		);
+	}
+}
+
+void AWOD_Character::Server_DropItem_Implementation(FVector DropLocation, FRotator DropRotation)
+{
+	if (HeldItem->Implements<UPickable>())
+	{
+		IPickable::Execute_OnDropped(HeldItem);
+	}
+
+	bIsCarrying = false;
+	HeldItem->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	HeldItem->SetActorLocationAndRotation(DropLocation, DropRotation);
+
+	HeldItem = nullptr;
+}
+
+void AWOD_Character::Server_MovePushable_Implementation()
+{
+	if (PushedItem)
+	{
+		FVector Forward = GetActorForwardVector();
+		FVector Right = GetActorRightVector();
+
+		FVector MoveDir = (Forward * MovementVector.X - Right * MovementVector.Y).GetSafeNormal();
+
+		if (!MoveDir.IsNearlyZero())
+		{
+			float Speed = 200.f; // tweak for "weighty" feel
+			FVector NewLocation = PushedItem->GetActorLocation() + MoveDir * Speed * GetWorld()->GetDeltaSeconds();
+			PushedItem->SetActorLocation(NewLocation);
+
+			RepPushableLocation = NewLocation;
+		}
 	}
 }
 
 void AWOD_Character::OnRep_HeldItem()
 {
-	ApplyHeldItem();
-}
-
-void AWOD_Character::ApplyHeldItem()
-{
-	if (HeldItem && HeldItem->Implements<UPickable>())
+	if (HeldItem)
 	{
-		if (bIsCarrying)
+		if (HeldItem->Implements<UPickable>())
 		{
-			IPickable::Execute_AttachToHand(HeldItem, this);
+			IPickable::Execute_OnPickedUp(HeldItem);
 		}
-		else
-		{
-			IPickable::Execute_DropToGround(HeldItem, this);
-		}
+
+		FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, true);
+		HeldItem->AttachToComponent(
+			GetMesh(),
+			AttachRules,
+			FName("HandGrip_R")
+		);
 	}
 }
 
-void AWOD_Character::ServerSetHeldItem_Implementation(AActor* newItem)
+void AWOD_Character::SendForwardTrace()
 {
-	HeldItem = newItem;
 
-	bIsCarrying = true;
-	CanCarry = !bIsCarrying;
-	ApplyHeldItem();
-	CurrentInteractable = nullptr;
-}
+	FVector Start = GetActorLocation();
+	FVector End = Start + (GetActorForwardVector() * 100.0f);
 
-void AWOD_Character::ServerDropHeldItem_Implementation()
-{
-	bIsCarrying = false;
-	CanCarry = !bIsCarrying;
-	ApplyHeldItem();
-	HeldItem = nullptr;
-}
+	FHitResult Hit;
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
 
-void AWOD_Character::ServerSetCurrentInteractable_Implementation(AActor* newCurrent)
-{
-	CurrentInteractable = newCurrent;
-}
+	bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params);
 
-void AWOD_Character::RunPickupAction()
-{
-	if (CurrentInteractable)
+	if (bHit)
 	{
-		if (CanCarry)
-			ServerSetHeldItem(CurrentInteractable);
-		else
-			ServerDropHeldItem();
+		DrawDebugLine(GetWorld(), Start, End, FColor::Green, false);
+		WallNormal = Hit.ImpactNormal;
+		WallPoint = Hit.ImpactPoint;
+		SendLedgeTrace(WallPoint);
+
+		if (GetCharacterMovement()->Velocity.Z < 0.0f && CanHang)
+		{
+			if (FVector::Distance(WallPoint, LedgePoint) <= 80.0f)
+			{
+				ServerSetAnimState(EAnimState::Hanging);
+				bIsHanging = true;
+
+				GetCharacterMovement()->StopMovementImmediately();
+				GetCharacterMovement()->SetMovementMode(MOVE_Custom);
+				
+				
+			}
+		}
 	}
-	else if (!CurrentInteractable)
+	else
 	{
-		if (CanCarry)
-			UE_LOG(LogTemp, Log, TEXT("No Pickable Item Found At Location !***"))
-		else
-			ServerDropHeldItem();
+		DrawDebugLine(GetWorld(), Start, End, FColor::Red, false);
+	}
+
+}
+
+void AWOD_Character::SendLedgeTrace(FVector HitPoint)
+{
+	float CapsuleRadius = 15.0f;
+	float CapsuleHalfSize = 350.0f;
+	FVector Offset = -WallNormal;
+	
+	FVector Start = Offset + FVector(HitPoint.X, HitPoint.Y, HitPoint.Z + CapsuleHalfSize);
+	FVector End = Offset + HitPoint;
+
+	FHitResult Hit;
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
+
+	bool bHit = GetWorld()->SweepSingleByChannel(Hit, Start, End, FQuat::Identity, ECC_Visibility, FCollisionShape::MakeCapsule(CapsuleRadius, CapsuleHalfSize), Params);
+	
+	if (bHit)
+	{
+		DrawDebugCapsule(GetWorld(), End + FVector(0,0, CapsuleHalfSize / 2), CapsuleHalfSize / 2, CapsuleRadius, FQuat::Identity, FColor::Green, false);
+		LedgePoint = Hit.ImpactPoint;
+		DrawDebugPoint(GetWorld(), Start, 10.0f, FColor::Blue, false);
+		DrawDebugPoint(GetWorld(), End, 10.0f, FColor::Blue, false);
+		DrawDebugPoint(GetWorld(), LedgePoint, 10.0f, FColor::Blue, false);
+		CreateLedgeNewTransform();
+		LocateHandsOnLedge(LedgePoint);
+		SendHandTrace(RightHandLocation);
+		SendHandTrace(LeftHandLocation);
+
+	}
+	else
+	{
+		DrawDebugCapsule(GetWorld(), Start,CapsuleHalfSize/2,CapsuleRadius,FQuat::Identity, FColor::Red, false);
+	}
+}
+void AWOD_Character::CreateLedgeNewTransform()
+{
+	float LineLength = 100.0f;
+	FVector NewForward = WallNormal * -1;
+	NewRight = FVector::CrossProduct(GetActorUpVector(), NewForward);
+
+	FVector NewUp = FVector::CrossProduct(NewForward, NewRight);
+
+	DrawDebugLine(GetWorld(), WallPoint, WallPoint + (NewRight * LineLength), FColor::Yellow, false);
+	DrawDebugLine(GetWorld(), WallPoint, WallPoint + (NewUp * LineLength), FColor::Cyan, false);
+}
+void AWOD_Character::LocateHandsOnLedge(FVector HitPoint)
+{
+	float HandOffset = 40.0f;
+	RightHandLocation = HitPoint + NewRight * HandOffset;
+	LeftHandLocation = HitPoint + -NewRight * HandOffset;
+
+	DrawDebugPoint(GetWorld(), RightHandLocation, 10.0f, FColor::Emerald, false);
+	DrawDebugPoint(GetWorld(), LeftHandLocation, 10.0f, FColor::Magenta, false);
+}
+
+void AWOD_Character::SendHandTrace(FVector HandLocation)
+{
+	float CapsuleRadius = 15.0f;
+	float CapsuleHalfSize = 50.0f;
+
+	FVector Start = HandLocation;
+	FVector End = HandLocation + (-WallNormal * CapsuleHalfSize);
+
+	FHitResult Hit;
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
+
+	bool bHit = GetWorld()->SweepSingleByChannel(Hit, Start, End, FQuat::Identity, ECC_Visibility, FCollisionShape::MakeCapsule(CapsuleRadius, CapsuleHalfSize), Params);
+	DrawDebugPoint(GetWorld(), End, 10.0f, FColor::Orange, false);
+	
+	// Pick debug color
+	FColor Color = bHit ? FColor::Green : FColor::Red;
+
+	// Draw impact point & normal
+	if (bHit)
+	{
+		DrawDebugLine(GetWorld(), Start, End, Color, false);
+		DrawDebugPoint(GetWorld(), Hit.ImpactPoint, 10.0f,FColor::Magenta,false);
+	}
+	else
+	{
+		DrawDebugLine(GetWorld(), Start, End, Color, false);
+	}
+}
+
+FVector AWOD_Character::HandleDropPosition()
+{
+
+	FVector Start = GetActorLocation();
+	FVector End = Start - FVector(0, 0, 200.0f);
+	float offsetFromPlayer = 100.0f;
+	float PickupHeight = 25.0f;
+
+	FHitResult Hit;
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
+
+	FVector DropLocation = GetActorLocation();
+
+	if (GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params))
+	{
+		FVector ToFront = GetActorForwardVector() * offsetFromPlayer;
+		DropLocation = Hit.ImpactPoint + FVector(0, 0, PickupHeight) + ToFront;
+	}
+
+	return DropLocation;
+
+}
+
+void AWOD_Character::Server_StartPushing_Implementation(AActor* newPushable)
+{
+	PushedItem = newPushable;
+
+	if (PushedItem && PushedItem->Implements<UPushable>())
+	{
+		bIsPushing = true;
+	
+		RepPushableLocation = PushedItem->GetActorLocation();
+
+		USceneComponent* SnapPoint = IPushable::Execute_GetSnapPoint(PushedItem);
+		
+		AttachToComponent(SnapPoint, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+
+		GetCharacterMovement()->DisableMovement();
+	}
+}
+
+void AWOD_Character::Server_StopPushing_Implementation()
+{
+	bIsPushing = false;
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+
+	GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+	PushedItem = nullptr;
+}
+
+void AWOD_Character::Server_SetMovementVector_Implementation(FVector2D NewMovementVector)
+{
+	MovementVector = NewMovementVector;
+}
+
+void AWOD_Character::OnRep_MovementVector()
+{
+	if (PushedItem)
+	{
+		FVector Forward = GetActorForwardVector();
+		FVector Right = GetActorRightVector();
+
+		FVector MoveDir = (Forward * MovementVector.X - Right * MovementVector.Y).GetSafeNormal();
+
+		if (!MoveDir.IsNearlyZero())
+		{
+			float Speed = 200.f; // tweak for "weighty" feel
+			FVector NewLocation = PushedItem->GetActorLocation() + MoveDir * Speed * GetWorld()->GetDeltaSeconds();
+			PushedItem->SetActorLocation(NewLocation);
+		}
 	}
 }
 
@@ -238,17 +505,30 @@ void AWOD_Character::Move(const FInputActionValue& Value)
 {
 	if (Controller != nullptr)
 	{
+		
 		ServerSetAnimState(EAnimState::Walking);
 
 		// input is a Vector2D
-		FVector2D MovementVector = Value.Get<FVector2D>();
+		Server_SetMovementVector(Value.Get<FVector2D>());
 
-		FVector ForwardDir = FVector::ForwardVector;
-		FVector RightDir = FVector::RightVector;
+		if (bIsPushing && PushedItem)
+		{
+			Server_MovePushable();
+		}
+		else if (bIsHanging)
+		{
+			FVector DirAlongLedge = NewRight;
+			AddMovementInput(DirAlongLedge, MovementVector.X);
+		}
+		else
+		{
+			// normal character move
+			FVector ForwardDir = FVector::ForwardVector;
+			FVector RightDir = FVector::RightVector;
 
-		AddMovementInput(ForwardDir, MovementVector.Y);
-		AddMovementInput(RightDir, MovementVector.X);
-
+			AddMovementInput(ForwardDir, MovementVector.Y);
+			AddMovementInput(RightDir, MovementVector.X);
+		}
 	}
 }
 
@@ -262,7 +542,20 @@ void AWOD_Character::StopMove(const FInputActionValue& Value)
 
 void AWOD_Character::StartJump(const FInputActionValue& Value)
 {
-	ServerSetAnimState(EAnimState::Jumping);
+	if (bIsHanging)
+	{
+		CanHang = false;
+		ServerSetAnimState(EAnimState::Climbing);
+		GetCharacterMovement()->SetMovementMode(MOVE_None);
+		GetMesh()->GetAnimInstance()->Montage_Play(ClimbMontage);
+
+
+		GetWorldTimerManager().ClearTimer(HangTimer);
+		GetWorldTimerManager().SetTimer(HangTimer, this, &AWOD_Character::HangTimerSolver, 1.0f, false);
+		return;
+	}
+
+
 
 	// make sure the character stop crouching if he was
 	if (bIsCrouched)
@@ -270,6 +563,7 @@ void AWOD_Character::StartJump(const FInputActionValue& Value)
 		UnCrouch();
 	}
 
+	ServerSetAnimState(EAnimState::Jumping);
 	Jump();
 	bIsGrounded = false;
 }
@@ -277,5 +571,51 @@ void AWOD_Character::StartJump(const FInputActionValue& Value)
 void AWOD_Character::StopJump(const FInputActionValue& Value)
 {
 	StopJumping();
+}
+
+void AWOD_Character::ToggleCrouch(const FInputActionValue& Value)
+{
+	if (bIsHanging)
+	{
+		ServerSetAnimState(EAnimState::Idle);
+		bIsHanging = false;
+		CanHang = false;
+		GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+		GetWorldTimerManager().ClearTimer(HangTimer);
+		GetWorldTimerManager().SetTimer(HangTimer,this,&AWOD_Character::HangTimerSolver, 1.0f,false);
+		return;
+	}
+
+	if (bIsCrouched)
+	{
+		UnCrouch();
+	}
+	else
+	{
+		Crouch();
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("bIsCrouched after: %d"), bIsCrouched);
+}
+
+void AWOD_Character::HangTimerSolver()
+{
+	if (!bIsHanging)
+	{
+		CanHang = true;
+
+	}
+	else
+	{
+		FVector RootLocation = GetActorLocation();
+		RootLocation.Z += 192.0f;
+		SetActorLocation(RootLocation + (-WallNormal * 50.0f));
+		GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+		ServerSetAnimState(EAnimState::Idle);
+
+		bIsHanging = false;
+		CanHang = true;
+
+	}
 }
 

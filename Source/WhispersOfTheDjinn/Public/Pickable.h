@@ -11,7 +11,7 @@
  * 
  */
 
-UINTERFACE()
+UINTERFACE(Blueprintable, MinimalAPI)
 class UPickable : public UInterface
 {
 	GENERATED_BODY()
@@ -20,11 +20,15 @@ class UPickable : public UInterface
 class WHISPERSOFTHEDJINN_API IPickable
 {
 	GENERATED_BODY()
+
 public:
 
-	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Pickup")
-	void AttachToHand(AWOD_Character* PickingCharacter);
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Pickable")
+	void OnPickedUp();
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Pickable")
+	void OnDropped();
 
-	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Pickup")
-	void DropToGround(AWOD_Character* PickingCharacter);
+	virtual bool CanBePickedUp() const = 0;
+	virtual bool IsHeld() const = 0;
+	virtual float GetWeight() const = 0;
 };

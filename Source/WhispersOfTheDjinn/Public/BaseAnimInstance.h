@@ -23,5 +23,8 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation State")
     bool aIsCrouching = false;
 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation State")
+    bool aIsHanging = false;
+
     virtual void NativeUpdateAnimation(float DeltaSeconds) override;
 };
