@@ -29,6 +29,8 @@ void AWOD_BaseGameMode::PostLogin(APlayerController* NewPlayer)
 	UE_LOG(LogTemp, Warning, TEXT("New player logged in: %s"), *GetNameSafe(NewPlayer));
 	JoinCounter++;
 
+	UE_LOG(LogTemp, Warning, TEXT("My number is: %d"), JoinCounter);
+
 	// Now PlayerState is safe to access
 	if (NewPlayer->PlayerState)
 	{

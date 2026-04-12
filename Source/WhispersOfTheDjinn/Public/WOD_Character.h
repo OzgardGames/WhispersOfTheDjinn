@@ -104,6 +104,9 @@ private:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation Instances", meta = (AllowPrivateAccess = "true"))
 	TSubclassOf<UAnimInstance> BrotherAnimInstance;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction Component", meta = (AllowPrivateAccess = "true"))
+	UInteractionComponent* InteractionComponent;
+
 public:
 
 	UPROPERTY(ReplicatedUsing = OnRep_MovementVector, VisibleAnywhere, BlueprintReadOnly)
@@ -140,6 +143,9 @@ public:
 
 	UFUNCTION()
 	void Interact(const FInputActionValue& Value);
+
+	UFUNCTION(Server, Reliable)
+	void Server_TryInteract(AActor* HitActor);
 
 	// PICKUP NETWORK LOGIC *************
 	UFUNCTION(Server,Reliable)

@@ -3,6 +3,7 @@
 
 #include "InteractionComponent.h"
 #include "Interactable.h"
+#include <WOD_Character.h>
 
 // Sets default values for this component's properties
 UInteractionComponent::UInteractionComponent()
@@ -23,7 +24,7 @@ void UInteractionComponent::BeginPlay()
 
 void UInteractionComponent::TryInteract()
 {
-	AActor* Owner = GetOwner();
+	AWOD_Character* Owner = Cast<AWOD_Character>(GetOwner());
 	if (!Owner) return;
 
 	FVector Start = Owner->GetActorLocation();
@@ -43,7 +44,7 @@ void UInteractionComponent::TryInteract()
 
 	if (bHit && HitResult.GetActor() && HitResult.GetActor()->Implements<UInteractable>())
 	{
-		IInteractable::Execute_Interact(HitResult.GetActor(), Owner);
+		Owner->Server_TryInteract(HitResult.GetActor());
 	}
 	else
 	{

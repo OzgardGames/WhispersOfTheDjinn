@@ -2,6 +2,7 @@
 
 
 #include "ButtonActor.h"
+#include "Net/UnrealNetwork.h"
 
 // Sets default values
 AButtonActor::AButtonActor()
@@ -12,6 +13,9 @@ AButtonActor::AButtonActor()
 
 	ButtonMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ButtonMesh"));
 	RootComponent = ButtonMesh;
+
+	bReplicates = true;
+	bAlwaysRelevant = true;
 }
 
 // Called when the game starts or when spawned
@@ -34,11 +38,31 @@ void AButtonActor::Tick(float DeltaTime)
 
 void AButtonActor::Interact_Implementation(AActor* InteractingActor)
 {
+	if (!HasAuthority())
+	{
+		return;
+	}
+
 	// Toggle the button state
 	bIsPressed = !bIsPressed;
 
 	// Log the interaction
 	UE_LOG(LogTemp, Warning, TEXT("Button %s pressed by %s"), *GetName(), *InteractingActor->GetName());
+
+	UpdateButtonMaterial();
+}
+
+FTransform AButtonActor::GetSnapTransform_Implementation()
+{
+	return FTransform();
+}
+
+void AButtonActor::UpdateButtonMaterial()
+{
+	if (!ButtonMesh)
+	{
+		return;
+	}
 
 	if (bIsPressed)
 	{
@@ -48,11 +72,17 @@ void AButtonActor::Interact_Implementation(AActor* InteractingActor)
 	{
 		ButtonMesh->SetMaterial(0, ButtonMaterial);
 	}
-
 }
 
-FTransform AButtonActor::GetSnapTransform_Implementation()
+void AButtonActor::OnRep_IsPressed()
 {
-	return FTransform();
+	UpdateButtonMaterial();
+}
+
+void AButtonActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(AButtonActor, bIsPressed);
 }
 

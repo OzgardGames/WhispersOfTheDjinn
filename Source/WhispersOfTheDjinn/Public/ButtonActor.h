@@ -29,6 +29,7 @@ public:
 
 	// Implement the GetSnapTransform method from IInteractable interface
 	virtual FTransform GetSnapTransform_Implementation() override;
+	void UpdateButtonMaterial();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mesh")
 	UStaticMeshComponent* ButtonMesh;
@@ -39,10 +40,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material")
 	UMaterialInterface* ButtonPressedMaterial;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Button")
+	UPROPERTY(ReplicatedUsing = OnRep_IsPressed)
 	bool bIsPressed = false;
+
+	UFUNCTION()
+	void OnRep_IsPressed();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Button")
 	FString InteractionText = "Press Button";
+
+protected:
+
+	void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const;
 
 };

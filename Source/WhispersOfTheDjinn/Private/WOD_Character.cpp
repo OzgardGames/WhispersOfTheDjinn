@@ -6,6 +6,7 @@
 #include "Pickable.h"
 #include "Pushable.h"
 #include "PushableBox.h"
+#include "Interactable.h"
 #include "BaseAnimInstance.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
@@ -54,6 +55,8 @@ AWOD_Character::AWOD_Character()
 
 	SkeletalMesh = GetMesh();
 
+	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
+
 	PrimaryActorTick.bCanEverTick = true;
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 
@@ -65,8 +68,6 @@ void AWOD_Character::ServerSetAnimState_Implementation(EAnimState NewState)
 {
 	AnimState = NewState;
 }
-
-
 
 void AWOD_Character::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
@@ -100,7 +101,7 @@ void AWOD_Character::Tick(float DeltaTime)
 		PushedItem->SetActorLocation(RepPushableLocation);
 	}
 
-	SendForwardTrace();
+	//SendForwardTrace();
 
 	if (bIsHanging)
 	{
@@ -226,6 +227,18 @@ void AWOD_Character::Interact(const FInputActionValue& Value)
 			}
 		}
 	}
+
+	InteractionComponent->TryInteract();
+}
+
+void AWOD_Character::Server_TryInteract_Implementation(AActor* HitActor)
+{
+	if (!HitActor)
+	{
+		return;
+	}
+	IInteractable::Execute_Interact(HitActor, this);
+
 }
 
 void AWOD_Character::Server_PickupItem_Implementation(AActor* newPickable)
@@ -318,9 +331,16 @@ void AWOD_Character::SendForwardTrace()
 	if (bHit)
 	{
 		DrawDebugLine(GetWorld(), Start, End, FColor::Green, false);
+
+		AActor* ObjectHit = Hit.GetActor();
+
+		
+
 		WallNormal = Hit.ImpactNormal;
 		WallPoint = Hit.ImpactPoint;
-		SendLedgeTrace(WallPoint);
+		//SendLedgeTrace(WallPoint);
+
+
 
 		if (GetCharacterMovement()->Velocity.Z < 0.0f && CanHang)
 		{
